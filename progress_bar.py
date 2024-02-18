@@ -5,6 +5,28 @@ from typing import Optional, Any
 from collections.abc import Iterable, Generator, Callable
 
 
+_VALID_COLORS = {
+    'black': ('\033[30m', '\033[40m'),
+    'red': ('\033[31m', '\033[41m'),
+    'green': ('\033[32m', '\033[42m'),
+    'yellow': ('\033[33m', '\033[43m'),
+    'blue': ('\033[34m', '\033[44m'),
+    'magenta': ('\033[35m', '\033[45m'),
+    'cyan': ('\033[36m', '\033[46m'),
+    'white': ('\033[37m', '\033[47m'),
+}
+_RESET_TF = '\033[0m'
+_RAINBOW = [_VALID_COLORS[c][0] for c in ('red', 'yellow', 'green', 'cyan', 'blue', 'magenta')]
+
+_NPB_DEFAULT_CLS_ATT = {
+    '_instance': None,
+    '_iterators': (),  # Using a tuple for x
+    '_pbar_lines_written': 0,
+    '_update_interval': None,
+    '_default_update_interval': 0.05,
+}
+
+
 def handle_NPB_error(method):
     '''A decorator to add error handling to NPB class methods'''
 
@@ -27,6 +49,10 @@ class PBarIter:
         length: Optional[int],
         desc: Optional[str],
         fill_char: str,
+        ncols: Optional[int],
+        text_color: Optional[str],
+        bg_color: Optional[str],
+        rainbow: bool,
         options_dict: dict,
     ) -> None:
 
@@ -61,6 +87,29 @@ class PBarIter:
             raise TypeError('\'fill_char\' must be a string of length one')
         if len(self._fill_char) != 1:
             raise ValueError('\'fill_char\' must be a string of length one')
+
+        # Validate ncols
+        if ncols is not None:
+            try:
+                ncols = int(ncols)
+            except Exception:
+                raise TypeError('If specified, \'ncols\' must be an integer')
+        self._ncols = ncols
+
+        # Validate text_color
+        if text_color is not None and text_color not in _VALID_COLORS:
+            raise ValueError(f'\'text_color\' must be a string in {set(_VALID_COLORS.keys())}')
+        self._text_color = _VALID_COLORS[text_color][0] if text_color is not None else None
+
+        # Validate bg_color
+        if bg_color is not None and bg_color not in _VALID_COLORS:
+            raise ValueError(f'\'bg_color\' must be a string in {set(_VALID_COLORS.keys())}')
+        self._bg_color = _VALID_COLORS[bg_color][1] if bg_color is not None else None
+
+        # Validate rainbow
+        self._rainbow = rainbow
+        if not isinstance(self._rainbow, bool):
+            raise TypeError('\'rainbow\' must be a boolean')
 
         # Validate the options dictionary
         self._options_dict = options_dict
@@ -105,9 +154,15 @@ class PBarIter:
 
 
 class NPB:
-    _instance: 'NPB' = None  # Stores the running class instance
-    _iterators: list[PBarIter] = []  # Stores the itrables whose progress is being evaluated
-    _pbar_lines_written: int = 0  # Stores the number of progress bar lines currently written
+    # Stores the running class instance
+    _instance: Optional['NPB'] = _NPB_DEFAULT_CLS_ATT['_instance']
+    # Stores the itrables whose progress is being evaluated
+    _iterators: tuple[PBarIter, ...] = _NPB_DEFAULT_CLS_ATT['_iterators']
+    # Stores the number of progress bar lines currently written
+    _pbar_lines_written: int = _NPB_DEFAULT_CLS_ATT['_pbar_lines_written']
+    # How often we update the progress bar and its default value
+    _update_interval: Optional[float] = _NPB_DEFAULT_CLS_ATT['_update_interval']
+    _default_update_interval: float = _NPB_DEFAULT_CLS_ATT['_default_update_interval']
 
     def __new__(cls, iterable, /, *args, **kwargs) -> 'NPB':
         # If disable is True, return the iterable
@@ -122,32 +177,45 @@ class NPB:
     @handle_NPB_error
     def __init__(
         self,
-        iterable,
+        iterable,  # Passed to PBarIter
         /,
         *,
-        length: Optional[int] = None,
-        desc: Optional[str] = None,
-        fill_char: str = '█',
-        update_interval: float = 0.05,
+        length: Optional[int] = None,  # Passed to PBarIter
+        desc: Optional[str] = None,  # Passed to PBarIter
+        fill_char: str = '█',  # Passed to PBarIter
+        update_interval: float = _default_update_interval,
         disable: bool = False,
-        # Options:
+        ncols: Optional[int] = None,  # Passed to PBarIter
+        text_color: Optional[str] = None,  # Passed to PBarIter
+        bg_color: Optional[str] = None,
+        rainbow: bool = False,  # Passed to PBarIter
+        # Options (all passed to PBarIter):
         counter: bool = True,
         timer: bool = True,
         rate: bool = True,
         avg_rate: bool = False,
     ) -> None:
+        cls = self.__class__
+
         iterator = PBarIter(
             iterable=iterable,
             length=length,
             desc=desc,
             fill_char=fill_char,
+            ncols=ncols,
+            text_color=text_color,
+            bg_color=bg_color,
+            rainbow=rainbow,
             options_dict={'counter': counter, 'timer': timer, 'rate': rate, 'avg_rate': avg_rate},
         )
-        self._iterators.append(iterator)
 
-        # Validate update interval
+        cls._iterators = (*self._iterators, iterator)
+
+        # Validate update_interval
         try:
-            self._update_interval = float(update_interval)
+            ui = float(update_interval)
+            if ui != cls._default_update_interval:
+                cls._update_interval = ui
         except Exception:
             raise TypeError('\'update_interval\' must be a float')
         self._last_update = float('-inf')
@@ -172,19 +240,16 @@ class NPB:
             raise_se = True
         finally:
             # Always executed
-            time_delta = self._iterators[-1]._it_time_delta
             curr_time = time.perf_counter()
-            if curr_time - self._last_update >= self._update_interval or raise_se:
+            ui = cls._update_interval if cls._update_interval is not None else cls._default_update_interval
+            if curr_time - self._last_update >= ui or raise_se:
                 self._last_update = curr_time
                 self._write_pbars()
             if raise_se:
-                cls._iterators.pop()
+                cls._iterators = cls._iterators[:-1]
                 if not cls._iterators:
                     self._reset()
                 raise StopIteration
-
-    def __del__(self) -> None:
-        self._reset()
 
     def _write_pbars(self) -> None:
         cls = self.__class__
@@ -220,9 +285,20 @@ class NPB:
         prefix = self._get_desc(iterator)
         suffix = ' '.join(filter(bool, (f(iterator) for f in self._get_options(iterator))))
 
-        pbar_space = os.get_terminal_size().columns - len(prefix) - bool(prefix) - len(suffix) - bool(suffix)
+        width = os.get_terminal_size().columns if iterator._ncols is None else iterator._ncols
+        pbar_space = width - len(prefix) - bool(prefix) - len(suffix) - bool(suffix)
         pbar = self._get_pbar(iterator, pbar_space)
-        return ' '.join(filter(bool, (prefix, pbar, suffix)))
+        pbar_str = ' '.join(filter(bool, (prefix, pbar, suffix)))
+
+        # Set the color of the progress bar
+        if iterator._rainbow:
+            pbar_str = ''.join(f'{_RAINBOW[i % len(_RAINBOW)]}{c}' for i, c in enumerate(pbar_str)) + _RESET_TF
+        elif iterator._text_color is not None:
+            pbar_str = f'{iterator._text_color}{pbar_str}{_RESET_TF}'
+        if iterator._bg_color is not None:
+            pbar_str = f'{iterator._bg_color}{pbar_str}{_RESET_TF}'
+
+        return pbar_str
 
     @staticmethod
     def _get_desc(iterator: PBarIter) -> str:
@@ -301,9 +377,11 @@ class NPB:
     def _reset(cls) -> None:
         '''Reset the class state so that a new instance can be created'''
 
-        cls._instance = None
-        cls._iterators = []
-        cls._pbar_lines_written = 0
+        for att in _NPB_DEFAULT_CLS_ATT.keys():
+            setattr(cls, att, _NPB_DEFAULT_CLS_ATT[att])
+
+    def __del__(self) -> None:
+        self._reset()
 
     def cancel(self) -> None:
         '''Cancel the current progress bar instance'''
@@ -312,35 +390,41 @@ class NPB:
         if len(cls._iterators) <= 1:
             self._reset()
         else:
-            cls._iterators.pop()
+            cls._iterators = cls._iterators[:-1]
 
 
 if __name__ == '__main__':
-    # from tqdm import tqdm
+    from tqdm import tqdm
 
-    # t = time.perf_counter()
-    # for i in NPB(range(30), desc='Master bar', disable=False):
-    #     for j in NPB(range(15), desc='Sub Bar', disable=False):
-    #         for k in NPB(range(10), desc='Sub Sub Bar', disable=False):
-    #             time.sleep(0.0005)
-    # a = time.perf_counter() - t
+    t = time.perf_counter()
+    for i in NPB(range(30), desc='Master bar'):
+        for j in NPB(range(15), desc=f'Sub Bar {i}'):
+            for k in NPB(range(10), desc=f'Sub Sub Bar {j}'):
+                time.sleep(0.0005)
+    a = time.perf_counter() - t
 
-    # t = time.perf_counter()
-    # for i in tqdm(range(30), desc='Master bar'):
-    #     for j in tqdm(range(15), desc='Sub Bar'):
-    #         for k in tqdm(range(10), desc='Sub Sub Bar'):
-    #             time.sleep(0.0005)
-    # b = time.perf_counter() - t
+    t = time.perf_counter()
+    for i in NPB(range(30), desc='Master bar', rainbow=True):
+        for j in NPB(range(15), desc=f'Sub Bar {i}', rainbow=True):
+            for k in NPB(range(10), desc=f'Sub Sub Bar {j}', rainbow=True):
+                time.sleep(0.0005)
+    a2 = time.perf_counter() - t
 
-    # t = time.perf_counter()
-    # for i in range(30):
-    #     for j in range(15):
-    #         for k in range(10):
-    #             time.sleep(0.0005)
-    # c = time.perf_counter() - t
+    t = time.perf_counter()
+    for i in tqdm(range(30), desc='Master bar'):
+        for j in tqdm(range(15), desc=f'Sub Bar {i}'):
+            for k in tqdm(range(10), desc=f'Sub Sub Bar {j}'):
+                time.sleep(0.0005)
+    b = time.perf_counter() - t
 
-    # print(f'NPB: {a}')
-    # print(f'tqdm: {b}')
-    # print(f'None: {c}')
+    t = time.perf_counter()
+    for i in range(30):
+        for j in range(15):
+            for k in range(10):
+                time.sleep(0.0005)
+    c = time.perf_counter() - t
 
-    pass
+    print(f'NPB: {a}')
+    print(f'NPB rainbow: {a2}')
+    print(f'tqdm: {b}')
+    print(f'None: {c}')
