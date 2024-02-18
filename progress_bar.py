@@ -2,6 +2,7 @@ import time
 import sys
 import os
 from typing import Optional, Any
+from collections.abc import Iterable, Generator, Callable
 
 
 def handle_pbar_error(method):
@@ -20,7 +21,14 @@ def handle_pbar_error(method):
 
 
 class PBarIter:
-    def __init__(self, iterable, length: Optional[int] = None, desc: Optional[str] = None) -> None:
+    def __init__(
+        self,
+        iterable: Iterable,
+        length: Optional[int],
+        desc: Optional[str],
+        fill_char: str,
+        options_dict: dict,
+    ) -> None:
 
         # Validate the iterable
         try:
@@ -46,6 +54,18 @@ class PBarIter:
                 raise TypeError('\'desc\' must be a string')
             if len(self._desc) == 0:
                 self._desc = None
+
+        # Validate the fill char
+        self._fill_char = fill_char
+        if not isinstance(self._fill_char, str):
+            raise TypeError('\'fill_char\' must be a string of length one')
+        if len(self._fill_char) != 1:
+            raise ValueError('\'fill_char\' must be a string of length one')
+
+        # Validate the options dictionary
+        self._options_dict = options_dict
+        if any(not isinstance(opt, bool) for opt in options_dict.values()):
+            raise TypeError('Only boolean values are accepted for option arguments')
 
         self._time_of_current_it: float = None
         self._it_time_delta: float = None
@@ -96,9 +116,24 @@ class NPB:
 
     @handle_pbar_error
     def __init__(
-        self, iterable, length: Optional[int] = None, desc: Optional[str] = None, update_interval: float = 0.005
+        self,
+        iterable,
+        length: Optional[int] = None,
+        desc: Optional[str] = None,
+        fill_char: str = '█',
+        counter: bool = True,
+        timer: bool = True,
+        rate: bool = True,
+        avg_rate: bool = False,
+        update_interval: float = 0.05,
     ) -> None:
-        iterator = PBarIter(iterable, length, desc)
+        iterator = PBarIter(
+            iterable=iterable,
+            length=length,
+            desc=desc,
+            fill_char=fill_char,
+            options_dict={'counter': counter, 'timer': timer, 'rate': rate, 'avg_rate': avg_rate},
+        )
         self._iterators.append(iterator)
 
         # Validate update interval
@@ -106,6 +141,7 @@ class NPB:
             self._update_interval = float(update_interval)
         except Exception:
             raise TypeError('\'update_interval\' must be a float')
+        self._last_update = float('-inf')
 
     def __iter__(self) -> 'NPB':
         return self
@@ -122,7 +158,9 @@ class NPB:
         finally:
             # Always executed
             time_delta = self._iterators[-1]._it_time_delta
-            if time_delta is None or time_delta >= self._update_interval:
+            curr_time = time.perf_counter()
+            if curr_time - self._last_update >= self._update_interval or raise_se:
+                self._last_update = curr_time
                 self._write_pbars()
             if raise_se:
                 cls._iterators.pop()
@@ -144,67 +182,97 @@ class NPB:
 
         sys.stdout.write(f'\r\033[{cls._pbar_lines_written}A')  # Move the cursor to the start of the top pbar
         for i, iterator in enumerate(cls._iterators):
-            sys.stdout.write('\033[K')  # Clear current line after cursor
-            sys.stdout.write(self._get_pbar_str(iterator))
-            sys.stdout.write('\033[1B\r')  # Move cursor down one and to the start of the line
+            # Clear current line after cursor, write the pbar, and move cursor down one and to the start of the line
+            sys.stdout.write(f'\033[K{self._get_pbar_str(iterator)}\033[1B\r')
             if i == len(cls._iterators) - 1:
                 # Last iterator has been written, so clear lines below
                 for _ in range(cls._pbar_lines_written - i - 1):
                     sys.stdout.write('\033[K\033[1B')  # Clear current line after cursor and move cursor down 1
         sys.stdout.flush()
 
+    def _get_options(self, iterator: PBarIter) -> Generator[Callable[[PBarIter], str], None, None]:
+        opt_dict = iterator._options_dict
+        if opt_dict.get('counter'):
+            yield self._get_count
+        if opt_dict.get('timer'):
+            yield self._get_elapsed_remaining
+        if opt_dict.get('rate'):
+            yield self._get_iteration_rate
+        if opt_dict.get('avg_rate'):
+            yield self._get_avg_rate
+
     def _get_pbar_str(self, iterator: PBarIter) -> str:
-        width = os.get_terminal_size().columns
+        prefix = self._get_desc(iterator)
+        suffix = ' '.join(filter(bool, (f(iterator) for f in self._get_options(iterator))))
 
-        start = ''
-        if iterator._desc is not None:
-            start = iterator._desc + ': '
+        pbar_space = os.get_terminal_size().columns - len(prefix) - bool(prefix) - len(suffix) - bool(suffix)
+        pbar = self._get_pbar(iterator, pbar_space)
+        return ' '.join(filter(bool, (prefix, pbar, suffix)))
 
+    @staticmethod
+    def _get_desc(iterator: PBarIter) -> str:
+        if iterator._desc is None:
+            return ''
+        return f'{iterator._desc}:'
+
+    @staticmethod
+    def _get_count(iterator: PBarIter) -> str:
+        if iterator._len is None:
+            return f'{iterator._current_index}it'
+        return f'{iterator._current_index}/{iterator._len}'
+
+    def _get_elapsed_remaining(self, iterator: PBarIter) -> str:
+        elapsed_time = proj_time = ''
+        if iterator._it_time_delta is not None:
+            elapsed_time = self._format_time(iterator._time_of_current_it - iterator._start_time)
+            if iterator._len is not None:
+                proj_time = self._format_time((iterator._len - iterator._current_index) * iterator._it_time_delta)
+
+        elapsed_time = elapsed_time or self._format_time(0)
+        proj_time = proj_time or '?'
+
+        return f'{elapsed_time}<{proj_time}'
+
+    @staticmethod
+    def _get_iteration_rate(iterator: PBarIter) -> str:
         if iterator._it_time_delta is None:
-            rate = '?it/s]'
+            rate = '?'
+        else:
+            if iterator._it_time_delta < 1.0:
+                rate = f'{1.0 / iterator._it_time_delta:.2f}it/s'.rjust(9)
+            else:
+                rate = f'{iterator._it_time_delta:.2f}s/it'.rjust(9)
+        return rate
+
+    @staticmethod
+    def _get_avg_rate(iterator: PBarIter) -> str:
+        if iterator._it_time_delta is None:
+            rate = '?'
         else:
             rate = (iterator._time_of_current_it - iterator._start_time) / iterator._current_index
             if rate < 1.0:
-                rate = f' {1.0 / rate:.2f}it/s]'.rjust(11)
+                rate = f'{1.0 / rate:.2f}it/s'.rjust(9)
             else:
-                rate = f' {rate:.2f}s/it]'.rjust(11)
+                rate = f'{rate:.2f}s/it'.rjust(9)
+        return rate
 
-        if iterator._len is not None:
-            prop_done = iterator._current_index / iterator._len
-            percent = f'{int(prop_done * 100)}%|'
+    @staticmethod
+    def _get_pbar(iterator: PBarIter, space_avail: int) -> str:
+        if iterator._len is None:
+            return ''
 
-            count = f'| {iterator._current_index}/{iterator._len} '
+        prop_done = iterator._current_index / iterator._len
+        percent = f'{prop_done:.0%}'
 
-            if iterator._it_time_delta is None:
-                time_disp = '[0:00<?,'
-            else:
-                elapsed_time = self._format_time(iterator._time_of_current_it - iterator._start_time)
-                proj_time = self._format_time((iterator._len - iterator._current_index) * iterator._it_time_delta)
-                time_disp = f'[{elapsed_time}<{proj_time},'
+        pbar_space = space_avail - len(percent) - 2  # -2 for | chars
 
-            prefix = start + percent
-            suffix = count + time_disp + rate
-
-            pbar_slots = width - len(prefix) - len(suffix)
-            if pbar_slots > 0:
-                pbar_str = ('█' * int(prop_done * pbar_slots)).ljust(pbar_slots)
-                out_str = prefix + pbar_str + suffix
-            else:
-                out_str = (prefix + suffix)[:width]
-
+        if pbar_space > 0:
+            pbar_str = (iterator._fill_char * int(prop_done * pbar_space)).ljust(pbar_space)
+            return f'{percent}|{pbar_str}|'
+        elif pbar_space > -3:
+            return percent
         else:
-            its = f'{iterator._current_index}it '
-            if iterator._it_time_delta is None:
-                time_disp = '[00:00, ?it/s]'
-            else:
-                elapsed_time = self._format_time(iterator._time_of_current_it - iterator._start_time)
-                time_disp = f'[{elapsed_time},{rate}'
-
-            out_str = its + time_disp
-            if width > len(out_str):
-                out_str = out_str[:width]
-
-        return out_str
+            return ''
 
     @staticmethod
     def _format_time(seconds: float) -> str:
