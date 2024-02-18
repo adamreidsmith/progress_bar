@@ -5,8 +5,8 @@ from typing import Optional, Any
 from collections.abc import Iterable, Generator, Callable
 
 
-def handle_pbar_error(method):
-    '''A decorator to add error handling to NestedPBar class methods'''
+def handle_NPB_error(method):
+    '''A decorator to add error handling to NPB class methods'''
 
     def wrapper(self, *args, **kwargs):
         try:
@@ -109,23 +109,32 @@ class NPB:
     _iterators: list[PBarIter] = []  # Stores the itrables whose progress is being evaluated
     _pbar_lines_written: int = 0  # Stores the number of progress bar lines currently written
 
-    def __new__(cls, *args, **kwargs) -> 'NPB':
+    def __new__(cls, iterable, /, *args, **kwargs) -> 'NPB':
+        # If disable is True, return the iterable
+        disable = kwargs.get('disable', False)
+        if isinstance(disable, bool) and disable:
+            return iterable
+        # If a running class instance already exists,
         if cls._instance is None:
             cls._instance = super().__new__(cls)
         return cls._instance
 
-    @handle_pbar_error
+    @handle_NPB_error
     def __init__(
         self,
         iterable,
+        /,
+        *,
         length: Optional[int] = None,
         desc: Optional[str] = None,
         fill_char: str = '█',
+        update_interval: float = 0.05,
+        disable: bool = False,
+        # Options:
         counter: bool = True,
         timer: bool = True,
         rate: bool = True,
         avg_rate: bool = False,
-        update_interval: float = 0.05,
     ) -> None:
         iterator = PBarIter(
             iterable=iterable,
@@ -143,10 +152,16 @@ class NPB:
             raise TypeError('\'update_interval\' must be a float')
         self._last_update = float('-inf')
 
+        # Validate disable
+        # This parameter is handled in the __new__ method and does nothing from here on.
+        # However, we still type check it.
+        if not isinstance(disable, bool):
+            raise TypeError('\'disable\' must be a boolean')
+
     def __iter__(self) -> 'NPB':
         return self
 
-    @handle_pbar_error
+    @handle_NPB_error
     def __next__(self) -> Any:
         cls = self.__class__
         raise_se = False
@@ -301,29 +316,31 @@ class NPB:
 
 
 if __name__ == '__main__':
-    from tqdm import tqdm
+    # from tqdm import tqdm
 
-    t = time.perf_counter()
-    for i in NPB(range(30), desc='Master bar'):
-        for j in NPB(range(15), desc='Sub Bar'):
-            for k in NPB(range(10), desc='Sub Sub Bar'):
-                time.sleep(0.0005)
-    a = time.perf_counter() - t
+    # t = time.perf_counter()
+    # for i in NPB(range(30), desc='Master bar', disable=False):
+    #     for j in NPB(range(15), desc='Sub Bar', disable=False):
+    #         for k in NPB(range(10), desc='Sub Sub Bar', disable=False):
+    #             time.sleep(0.0005)
+    # a = time.perf_counter() - t
 
-    t = time.perf_counter()
-    for i in tqdm(range(30), desc='Master bar'):
-        for j in tqdm(range(15), desc='Sub Bar'):
-            for k in tqdm(range(10), desc='Sub Sub Bar'):
-                time.sleep(0.0005)
-    b = time.perf_counter() - t
+    # t = time.perf_counter()
+    # for i in tqdm(range(30), desc='Master bar'):
+    #     for j in tqdm(range(15), desc='Sub Bar'):
+    #         for k in tqdm(range(10), desc='Sub Sub Bar'):
+    #             time.sleep(0.0005)
+    # b = time.perf_counter() - t
 
-    t = time.perf_counter()
-    for i in range(30):
-        for j in range(15):
-            for k in range(10):
-                time.sleep(0.0005)
-    c = time.perf_counter() - t
+    # t = time.perf_counter()
+    # for i in range(30):
+    #     for j in range(15):
+    #         for k in range(10):
+    #             time.sleep(0.0005)
+    # c = time.perf_counter() - t
 
-    print(f'NPB: {a}')
-    print(f'tqdm: {b}')
-    print(f'None: {c}')
+    # print(f'NPB: {a}')
+    # print(f'tqdm: {b}')
+    # print(f'None: {c}')
+
+    pass
