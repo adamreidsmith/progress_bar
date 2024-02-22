@@ -27,7 +27,7 @@ _NPB_DEFAULT_CLS_ATT = {
 }
 
 
-def handle_NPB_error(method):
+def _handle_NPB_error(method):
     '''A decorator to add error handling to NPB class methods'''
 
     def wrapper(self, *args, **kwargs):
@@ -174,7 +174,7 @@ class NPB:
             cls._instance = super().__new__(cls)
         return cls._instance
 
-    @handle_NPB_error
+    @_handle_NPB_error
     def __init__(
         self,
         iterable,  # Passed to PBarIter
@@ -229,7 +229,7 @@ class NPB:
     def __iter__(self) -> 'NPB':
         return self
 
-    @handle_NPB_error
+    @_handle_NPB_error
     def __next__(self) -> Any:
         cls = self.__class__
         raise_se = False
