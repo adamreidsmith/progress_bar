@@ -16,11 +16,11 @@ _VALID_COLORS = {
     'white': ('\033[37m', '\033[47m'),
 }
 _RESET_TF = '\033[0m'
-_RAINBOW = [_VALID_COLORS[c][0] for c in ('red', 'yellow', 'green', 'cyan', 'blue', 'magenta')]
+_RAINBOW = tuple(_VALID_COLORS[c][0] for c in ('red', 'yellow', 'green', 'cyan', 'blue', 'magenta'))
 
 _NPB_DEFAULT_CLS_ATT = {
     '_instance': None,
-    '_iterators': (),  # Using a tuple for x
+    '_iterators': (),  # Using a tuple for immutability
     '_pbar_lines_written': 0,
     '_update_interval': None,
     '_default_update_interval': 0.05,
@@ -59,14 +59,14 @@ class PBarIter:
         # Validate the iterable
         try:
             self._iterator = iter(iterable)
-        except TypeError:
+        except (TypeError, AttributeError):
             raise TypeError(f'\'{type(iterable).__name__}\' object is not iterable')
 
         # Compute the length if possible
         self._len = None
         try:
             self._len = len(iterable)
-        except TypeError:
+        except (TypeError, AttributeError):
             if length is not None:
                 try:
                     self._len = int(length)
@@ -187,7 +187,7 @@ class NPB:
         disable: bool = False,
         ncols: Optional[int] = None,  # Passed to PBarIter
         text_color: Optional[str] = None,  # Passed to PBarIter
-        bg_color: Optional[str] = None,
+        bg_color: Optional[str] = None,  # Passed to PBarIter
         rainbow: bool = False,  # Passed to PBarIter
         # Options (all passed to PBarIter):
         counter: bool = True,
@@ -393,38 +393,45 @@ class NPB:
             cls._iterators = cls._iterators[:-1]
 
 
+def nrange(*args, **kwargs):
+    '''Shortcut for NPB(range(*args), **kwargs)'''
+    return NPB(range(*args), **kwargs)
+
+
 if __name__ == '__main__':
-    from tqdm import tqdm
+    # from tqdm import tqdm
 
-    t = time.perf_counter()
-    for i in NPB(range(30), desc='Master bar'):
-        for j in NPB(range(15), desc=f'Sub Bar {i}'):
-            for k in NPB(range(10), desc=f'Sub Sub Bar {j}'):
-                time.sleep(0.0005)
-    a = time.perf_counter() - t
+    # t = time.perf_counter()
+    # for i in NPB(range(30), desc='Master bar'):
+    #     for j in NPB(range(15), desc=f'Sub Bar {i}'):
+    #         for k in NPB(range(10), desc=f'Sub Sub Bar {j}'):
+    #             time.sleep(0.0005)
+    # a = time.perf_counter() - t
 
-    t = time.perf_counter()
-    for i in NPB(range(30), desc='Master bar', rainbow=True):
-        for j in NPB(range(15), desc=f'Sub Bar {i}', rainbow=True):
-            for k in NPB(range(10), desc=f'Sub Sub Bar {j}', rainbow=True):
-                time.sleep(0.0005)
-    a2 = time.perf_counter() - t
+    # t = time.perf_counter()
+    # for i in NPB(range(30), desc='Master bar', rainbow=True):
+    #     for j in NPB(range(15), desc=f'Sub Bar {i}', rainbow=True):
+    #         for k in NPB(range(10), desc=f'Sub Sub Bar {j}', rainbow=True):
+    #             time.sleep(0.0005)
+    # a2 = time.perf_counter() - t
 
-    t = time.perf_counter()
-    for i in tqdm(range(30), desc='Master bar'):
-        for j in tqdm(range(15), desc=f'Sub Bar {i}'):
-            for k in tqdm(range(10), desc=f'Sub Sub Bar {j}'):
-                time.sleep(0.0005)
-    b = time.perf_counter() - t
+    # t = time.perf_counter()
+    # for i in tqdm(range(30), desc='Master bar'):
+    #     for j in tqdm(range(15), desc=f'Sub Bar {i}'):
+    #         for k in tqdm(range(10), desc=f'Sub Sub Bar {j}'):
+    #             time.sleep(0.0005)
+    # b = time.perf_counter() - t
 
-    t = time.perf_counter()
-    for i in range(30):
-        for j in range(15):
-            for k in range(10):
-                time.sleep(0.0005)
-    c = time.perf_counter() - t
+    # t = time.perf_counter()
+    # for i in range(30):
+    #     for j in range(15):
+    #         for k in range(10):
+    #             time.sleep(0.0005)
+    # c = time.perf_counter() - t
 
-    print(f'NPB: {a}')
-    print(f'NPB rainbow: {a2}')
-    print(f'tqdm: {b}')
-    print(f'None: {c}')
+    # print(f'NPB: {a}')
+    # print(f'NPB rainbow: {a2}')
+    # print(f'tqdm: {b}')
+    # print(f'None: {c}')
+
+    print(nrange(4))
