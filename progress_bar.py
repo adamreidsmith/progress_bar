@@ -399,39 +399,37 @@ def nrange(*args, **kwargs):
 
 
 if __name__ == '__main__':
-    # from tqdm import tqdm
+    from tqdm import tqdm
 
-    # t = time.perf_counter()
-    # for i in NPB(range(30), desc='Master bar'):
-    #     for j in NPB(range(15), desc=f'Sub Bar {i}'):
-    #         for k in NPB(range(10), desc=f'Sub Sub Bar {j}'):
-    #             time.sleep(0.0005)
-    # a = time.perf_counter() - t
+    t = time.perf_counter()
+    for i in NPB(range(30), desc='Master bar'):
+        for j in NPB(range(15), desc=f'Sub Bar {i}'):
+            for k in NPB(range(10), desc=f'Sub Sub Bar {j}'):
+                time.sleep(0.0005)
+    a = time.perf_counter() - t
 
-    # t = time.perf_counter()
-    # for i in NPB(range(30), desc='Master bar', rainbow=True):
-    #     for j in NPB(range(15), desc=f'Sub Bar {i}', rainbow=True):
-    #         for k in NPB(range(10), desc=f'Sub Sub Bar {j}', rainbow=True):
-    #             time.sleep(0.0005)
-    # a2 = time.perf_counter() - t
+    t = time.perf_counter()
+    for i in NPB(range(30), desc='Master bar', rainbow=True):
+        for j in NPB(range(15), desc=f'Sub Bar {i}', rainbow=True):
+            for k in NPB(range(10), desc=f'Sub Sub Bar {j}', rainbow=True):
+                time.sleep(0.0005)
+    a2 = time.perf_counter() - t
 
-    # t = time.perf_counter()
-    # for i in tqdm(range(30), desc='Master bar'):
-    #     for j in tqdm(range(15), desc=f'Sub Bar {i}'):
-    #         for k in tqdm(range(10), desc=f'Sub Sub Bar {j}'):
-    #             time.sleep(0.0005)
-    # b = time.perf_counter() - t
+    t = time.perf_counter()
+    for i in tqdm(range(30), desc='Master bar'):
+        for j in tqdm(range(15), desc=f'Sub Bar {i}'):
+            for k in tqdm(range(10), desc=f'Sub Sub Bar {j}'):
+                time.sleep(0.0005)
+    b = time.perf_counter() - t
 
-    # t = time.perf_counter()
-    # for i in range(30):
-    #     for j in range(15):
-    #         for k in range(10):
-    #             time.sleep(0.0005)
-    # c = time.perf_counter() - t
+    t = time.perf_counter()
+    for i in range(30):
+        for j in range(15):
+            for k in range(10):
+                time.sleep(0.0005)
+    c = time.perf_counter() - t
 
-    # print(f'NPB: {a}')
-    # print(f'NPB rainbow: {a2}')
-    # print(f'tqdm: {b}')
-    # print(f'None: {c}')
-
-    print(nrange(4))
+    print(f'NPB: {a:.4f}s')
+    print(f'NPB rainbow: {a2:.4f}s')
+    print(f'tqdm: {b:.4f}s')
+    print(f'None: {c:.4f}s')
