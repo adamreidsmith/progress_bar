@@ -377,8 +377,8 @@ class NPB:
     def _reset(cls) -> None:
         '''Reset the class state so that a new instance can be created'''
 
-        for att in _NPB_DEFAULT_CLS_ATT.keys():
-            setattr(cls, att, _NPB_DEFAULT_CLS_ATT[att])
+        for att, val in _NPB_DEFAULT_CLS_ATT.items():
+            setattr(cls, att, val)
 
     def __del__(self) -> None:
         self._reset()
